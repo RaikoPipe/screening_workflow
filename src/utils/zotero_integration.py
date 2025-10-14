@@ -2,7 +2,7 @@ from syslira_tools import ZoteroClient, OpenAlexClient, PaperLibrary
 from loguru import logger
 import os
 
-def get_paper_collection(collection_key):
+def get_paper_collection(collection_key, get_fulltext=True):
     """Initialize the Zotero client."""
 
     zotero_api_key = os.environ.get("ZOTERO_API_KEY")
@@ -26,7 +26,7 @@ def get_paper_collection(collection_key):
     )
 
     # get papers
-    result = paper_library.update_from_zotero(get_fulltext=False)
+    result = paper_library.update_from_zotero(get_fulltext=get_fulltext, deduplicate=True)
     logger.info(result)
 
     return paper_library.get_library_df()

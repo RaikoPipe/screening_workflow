@@ -12,7 +12,8 @@ from typing import Any, Dict, List, TypedDict
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_google_vertexai import ChatVertexAI
+from langchain_ollama import ChatOllama
+
 from langgraph.graph import StateGraph
 from src.utils import get_paper_collection
 from pydantic import BaseModel, Field
@@ -22,7 +23,6 @@ class Configuration(TypedDict):
 
     model_name: str
     temperature: float
-    api_key: str
 
 
 @dataclass
@@ -30,7 +30,9 @@ class LiteratureItem:
     """Represents a literature item with title and abstract."""
 
     title: str
+    doi: str
     abstract: str
+    fulltext: str = ""  # Placeholder for full text if needed
 
 
 @dataclass
@@ -38,8 +40,9 @@ class ScreeningResult:
     """Represents screening result for a literature item."""
 
     title: str
-    inclusion: int  # 0 or 1
+    doi: str
     reasoning: str
+    inclusion: int  # 0 or 1
 
 class ScreeningDecision(BaseModel):
     """Structured output for literature screening decision."""
@@ -58,16 +61,17 @@ class State:
     output_path: str = "screening_results.csv"
 
 
-
 async def load_literature(state: State, config: RunnableConfig) -> Dict[str, Any]:
     """Load literature items from the literature folder."""
-
     literature_items = []
-
-    paper_collection = get_paper_collection(collection_key=state.collection_key)
+    if not state.literature_items:
+        paper_collection = get_paper_collection(collection_key=state.collection_key, get_fulltext=True)
+    else:
+        # assume literature items in correct format
+        paper_collection = state.literature_items
 
     for idx, paper in paper_collection.iterrows():
-        literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote))
+        literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote, doi =paper.DOI, fulltext=paper.fulltext))
 
     print(f"Loaded {len(literature_items)} literature items")
     return {"literature_items": literature_items}
@@ -77,13 +81,14 @@ async def screen_literature(state: State, config: RunnableConfig) -> Dict[str, A
     """Screen each literature item based on exclusion criteria, with up to 3 retries on error."""
 
     configuration = config.get("configurable", {})
-    model_name = configuration.get("model_name", "gemini-2.5-flash")
+    model_name = configuration.get("model_name", "gpt-oss:120b")
 
-    llm_agent = ChatVertexAI(model=model_name, **configuration).with_structured_output(ScreeningDecision)
+    llm_agent = ChatOllama(model=model_name, **configuration)
+    llm_agent = llm_agent.with_structured_output(ScreeningDecision)
     parser = JsonOutputParser()
 
-    system_prompt = """You are a literature screening expert. Evaluate the title and abstract against exclusion criteria.
-Return JSON with 'inclusion' (0=exclude, 1=include) and 'reasoning' (brief explanation). If there is no abstract given, evaluate based on title only."""
+    system_prompt = """You are a literature screening expert. Evaluate the title and fulltext against exclusion criteria.
+Return JSON with 'reasoning' (brief explanation, addressing **ALL** the exclusion criteria) and then your final conclusion as 'inclusion' (0=exclude, 1=include). In your reasoning, first evaluate the article over the exclusion criteria. Conclude with a final verdict. If there is no abstract given, evaluate based on title only."""
 
     results = []
 
@@ -96,7 +101,7 @@ Exclusion Criteria: {state.exclusion_criteria}
 
 Title: {item.title}
 
-Abstract: {item.abstract}
+Fulltext: {item.fulltext}
 
 Should this paper be INCLUDED (1) or EXCLUDED (0) based on the exclusion criteria?
 """
@@ -110,8 +115,10 @@ Should this paper be INCLUDED (1) or EXCLUDED (0) based on the exclusion criteri
 
                 result = ScreeningResult(
                     title=item.title,
-                    inclusion=response.inclusion,
-                    reasoning=response.reasoning
+                    doi=item.doi,
+                    reasoning=response.reasoning,
+                    inclusion=response.inclusion
+
                 )
                 results.append(result)
                 break  # Success, exit retry loop
@@ -123,13 +130,13 @@ Should this paper be INCLUDED (1) or EXCLUDED (0) based on the exclusion criteri
                     # Default to exclusion on repeated error
                     result = ScreeningResult(
                         title=item.title,
+                        doi=item.doi,
                         inclusion=0,
                         reasoning=f"Error in processing after 3 attempts: {str(e)}"
                     )
                     results.append(result)
 
     return {"results": results}
-
 
 async def generate_csv(state: State, config: RunnableConfig) -> Dict[str, Any]:
     """Generate CSV file with screening results."""
@@ -139,11 +146,11 @@ async def generate_csv(state: State, config: RunnableConfig) -> Dict[str, Any]:
             writer = csv.writer(csvfile)
 
             # Write header
-            writer.writerow(['title', 'inclusion', 'reasoning'])
+            writer.writerow(['title', 'doi', 'inclusion', 'reasoning'])
 
             # Write results
             for result in state.results:
-                writer.writerow([result.title, result.inclusion, result.reasoning])
+                writer.writerow([result.title, result.doi, result.inclusion, result.reasoning])
 
         print(f"Results saved to {state.output_path}")
 
@@ -160,7 +167,7 @@ async def generate_csv(state: State, config: RunnableConfig) -> Dict[str, Any]:
 
 # Define the graph
 graph = (
-    StateGraph(State, config_schema=Configuration)
+    StateGraph(State, context_schema=Configuration)
     .add_node("load_literature", load_literature)
     .add_node("screen_literature", screen_literature)
     .add_node("generate_csv", generate_csv)
@@ -169,3 +176,4 @@ graph = (
     .add_edge("screen_literature", "generate_csv")
     .compile(name="Literature Screening Agent")
 )
+
