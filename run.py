@@ -59,9 +59,8 @@ async def run_qa_screening(qa_criteria: str, output_path: str = "qa_results.csv"
 if __name__ == "__main__":
 
     screening_criteria = """
-    **EC1:**  - Exclude articles that do not focus on Large Language Models (LLMs) application and that do not include any Generative AI elements.  - Exclude articles that do not explicitly mention multi-agent orchestration, interaction, or agentic workflow.  - Exclude LLM applications that are monolithic or single-agent in nature, without any interaction between multiple agents or components.  
-**EC2:**  - Exclude articles where the primary application domain is not directly related to an industrial context  - Specifically exclude studies focused solely on domains such as social media, gaming, entertainment, general education (unless specific to manufacturing education), or general healthcare (unless specific to medical device manufacturing or pharmaceutical manufacturing).
-    """
+   **EC1:**  - Exclude articles that do not focus on Large Language Models (LLMs) application and that do not include any Generative AI components.  - Exclude articles that do not explicitly mention/discuss the orchestration of multiple LLM-based agents or interaction between in them in any cooperative scheme (collaboration, cooperation, competition or similar).  - Exclude LLM applications that are monolithic or single-agent in nature.  
+**EC2:**  - Exclude articles where the primary application domain is not directly related to an industrial context  - Specifically exclude studies focused solely on domains such as social media, gaming, entertainment, general education (unless specific to manufacturing education), or general healthcare (unless specific to medical device manufacturing or pharmaceutical manufacturing).  """
 
     qa_criteria = """
     Using Likert Scala: 1 - No, and not considered (Score: 0), 2 - Partially (Score: 1), 3 - Yes: (Score: 2)
