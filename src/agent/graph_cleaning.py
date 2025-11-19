@@ -5,26 +5,18 @@ Screens literature titles and abstracts based on exclusion criteria.
 
 from __future__ import annotations
 
-import math
 import os
-import pandas
+import csv
 from dataclasses import dataclass, field
-from pydoc import describe
 from typing import Any, Dict, List, TypedDict
-
-import pandas as pd
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_ollama import ChatOllama
-import abc
-from langgraph.graph import StateGraph
-from src.utils import get_paper_collection, flatten_pydantic, remove_references_section
-from pydantic import BaseModel, Field
-from pydantic.fields import FieldInfo
-from typing_extensions import Optional
-from tqdm.asyncio import tqdm
 
+from langgraph.graph import StateGraph
+from src.utils import get_paper_collection
+from pydantic import BaseModel, Field
 
 class Configuration(TypedDict):
     """Configurable parameters for the agent."""
@@ -41,7 +33,6 @@ class LiteratureItem:
     doi: str
     abstract: str
     fulltext: str = ""  # Placeholder for full text if needed
-    extra: str = ""
 
 
 @dataclass
@@ -50,34 +41,20 @@ class ScreeningResult:
 
     title: str
     doi: str
-    screening_decision: Optional[ScreeningDecision]
-    exclusion: bool
+    reasoning: str
+    inclusion: int  # 0 or 1
 
 class ScreeningDecision(BaseModel):
     """Structured output for literature screening decision."""
 
-    @classmethod
-    def add_exclusion_criteria(cls, **field_definitions: dict[str, str]):
-        """Add fields to the model at runtime."""
-        new_fields: Dict[str, FieldInfo] = {}
-        new_annotations: Dict[str, Optional[type]] = {}
-
-        for f_name, f_description in field_definitions.items():
-            new_fields[f"{f_name}_reasoning"] = FieldInfo(annotation=str, description=f"Single sentence on whether the following exclusion criterion applies: {f_description}")
-            new_fields[f"{f_name}_decision"] = FieldInfo(annotation=bool, description=f"True if the exclusion criterion applies, else False.")
-
-
-        cls.__annotations__.update(new_annotations)
-        cls.model_fields.update(new_fields)
-        cls.model_rebuild(force=True)
-
+    inclusion: int = Field(description="0 for exclude, 1 for include")
+    reasoning: str = Field(description="Brief reasoning for the decision")
 
 @dataclass
 class State:
     """State for the literature screening agent."""
 
-    exclusion_criteria: dict[str,str] = None
-    topic: str = ""
+    exclusion_criteria: str = ""
     collection_key: str = field(default_factory=lambda: os.environ.get("ZOTERO_COLLECTION_KEY", ""))
     literature_items: List[LiteratureItem] = field(default_factory=list)
     results: List[ScreeningResult] = field(default_factory=list)
@@ -94,7 +71,7 @@ async def load_literature(state: State, config: RunnableConfig) -> Dict[str, Any
         paper_collection = state.literature_items
 
     for idx, paper in paper_collection.iterrows():
-        literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote, doi =paper.DOI, fulltext=paper.fulltext, extra=paper.extra))
+        literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote, doi =paper.DOI, fulltext=paper.fulltext))
 
     print(f"Loaded {len(literature_items)} literature items")
     return {"literature_items": literature_items}
@@ -105,45 +82,29 @@ async def screen_literature(state: State, config: RunnableConfig) -> Dict[str, A
 
     configuration = config.get("configurable", {})
     model_name = configuration.get("model_name", "gpt-oss:120b")
-    max_fulltext_words = configuration.get("max_fulltext_words", 12000)
-
-    # add exclusion criteria fields to ScreeningDecision model
-    ScreeningDecision.add_exclusion_criteria(**state.exclusion_criteria)
 
     llm_agent = ChatOllama(model=model_name, **configuration)
     llm_agent = llm_agent.with_structured_output(ScreeningDecision)
+    parser = JsonOutputParser()
 
-    system_prompt = """You are a literature screening expert. For each paper, evaluate the title and fulltext against each exclusion criterion independently. Provide clear, brief reasoning for each criterion, then make a definitive True/False decision on whether that specific criterion applies (True = exclude). Base decisions solely on the provided text."""
+    system_prompt = """You are a literature screening expert. Evaluate the title and fulltext against exclusion criteria.
+Return JSON with 'reasoning' (brief explanation, addressing **ALL** the exclusion criteria) and then your final conclusion as 'inclusion' (0=exclude, 1=include). In your reasoning, first evaluate the article over the exclusion criteria. Conclude with a final verdict. If there is no abstract given, evaluate based on title only."""
 
     results = []
 
-    for item in tqdm(state.literature_items, desc="Screening literature", unit="item"):
-        if type(item.fulltext) is str:
-            text_to_screen = remove_references_section(item.fulltext)
-            text_to_screen = text_to_screen.split()[:max_fulltext_words]
-            text_label = "Fulltext"
-        else:
-            text_to_screen = item.abstract
-            text_label = "Abstract"
-
+    for item in state.literature_items:
         attempt = 0
         while attempt < 3:
             try:
-                criteria_text = "\n".join([f"- {name}: {description}" for name, description in state.exclusion_criteria.items()])
                 human_prompt = f"""
-# Title: {item.title}
+Exclusion Criteria: {state.exclusion_criteria}
 
-# {text_label}: {text_to_screen}
+Title: {item.title}
 
----
-Here are my exclusion criteria:
-{criteria_text}
+Fulltext: {item.fulltext}
 
-Evaluate this paper against all exclusion criteria. For each criterion, provide reasoning and a decision.
+Should this paper be INCLUDED (1) or EXCLUDED (0) based on the exclusion criteria?
 """
-                if item.extra == "skip":
-                    attempt = 3
-                    raise Exception("Skipped paper due to 'skip' flag set.")
 
                 messages = [
                     SystemMessage(content=system_prompt),
@@ -152,13 +113,12 @@ Evaluate this paper against all exclusion criteria. For each criterion, provide 
 
                 response = await llm_agent.ainvoke(messages)
 
-                exclusion = [value for name, value in response if "_decision" in name]
-
                 result = ScreeningResult(
                     title=item.title,
                     doi=item.doi,
-                    screening_decision=response,
-                    exclusion = any(exclusion)
+                    reasoning=response.reasoning,
+                    inclusion=response.inclusion
+
                 )
                 results.append(result)
                 break  # Success, exit retry loop
@@ -171,8 +131,8 @@ Evaluate this paper against all exclusion criteria. For each criterion, provide 
                     result = ScreeningResult(
                         title=item.title,
                         doi=item.doi,
-                        screening_decision=ScreeningDecision().model_dump(),
-                        exclusion=True
+                        inclusion=0,
+                        reasoning=f"Error in processing after 3 attempts: {str(e)}"
                     )
                     results.append(result)
 
@@ -182,22 +142,21 @@ async def generate_csv(state: State, config: RunnableConfig) -> Dict[str, Any]:
     """Generate CSV file with screening results."""
 
     try:
-        df = pd.DataFrame([
-            {
-                'title': r.title,
-                'doi': r.doi,
-                'exclusion': r.exclusion,
-                **(r.screening_decision.model_dump() if r.screening_decision else {})
-            }
-            for r in state.results
-        ])
+        with open(state.output_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
 
-        df.to_csv(state.output_path, index=False)
+            # Write header
+            writer.writerow(['title', 'doi', 'inclusion', 'reasoning'])
+
+            # Write results
+            for result in state.results:
+                writer.writerow([result.title, result.doi, result.inclusion, result.reasoning])
+
         print(f"Results saved to {state.output_path}")
 
         # Print summary
-        excluded = sum(1 for r in state.results if r.exclusion == True)
-        included = len(state.results) - excluded
+        included = sum(1 for r in state.results if r.inclusion == 1)
+        excluded = len(state.results) - included
         print(f"Summary: {included} included, {excluded} excluded out of {len(state.results)} papers")
 
     except Exception as e:

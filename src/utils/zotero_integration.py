@@ -26,7 +26,7 @@ def get_paper_collection(collection_key, get_fulltext=True):
     )
 
     # get papers
-    result = paper_library.update_from_zotero(get_fulltext=get_fulltext, deduplicate=True)
+    result = paper_library.update_from_zotero(get_fulltext=get_fulltext, deduplicate=False)
     logger.info(result)
 
     return paper_library.get_library_df()
