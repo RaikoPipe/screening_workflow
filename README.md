@@ -1,6 +1,6 @@
 # Literature Screening Workflows
 
-AI-powered workflows for systematic literature review using LangGraph, LLM agents and Zotero integration. This project provides two complementary screening workflows: exclusion screening and quality assessment (QA).
+AI-powered workflows for systematic literature review using LangGraph, LLM agents and [Zotero integration](https://github.com/RaikoPipe/syslira-tools). This project provides two complementary screening workflows: exclusion screening and quality assessment (QA).
 
 ## Features
 
@@ -30,6 +30,10 @@ cp .env.example .env
 Create a `.env` file with required API keys:
 ```bash
 LANGSMITH_PROJECT=your-project-name
+# Zotero
+ZOTERO_API_KEY=your-key-here
+ZOTERO_LIBRARY_ID=your-id-here
+ZOTERO_COLLECTION_KEY=your-key-here
 # Add LLM provider API keys as needed
 ```
 
