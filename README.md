@@ -1,11 +1,12 @@
 # Literature Screening Workflows
 
-AI-powered workflows for systematic literature review using LangGraph and LLM agents. This project provides two complementary screening workflows: exclusion screening and quality assessment (QA).
+AI-powered workflows for systematic literature review using LangGraph, LLM agents and Zotero integration. This project provides two complementary screening workflows: exclusion screening and quality assessment (QA).
 
 ## Features
 
 **Key capabilities:**
-- Multi-criteria evaluation
+- load literature item collection from zotero
+- Evaluate using LLM agents
 - Structured decision reasoning for each criterion
 - CSV output with exclusion rationale
 
