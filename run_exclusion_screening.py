@@ -1,15 +1,10 @@
-
-from src.agent import graph_screening
-from src.agent import graph_qa
 from src.agent.graph_screening import State as ScreeningState
 from src.agent.graph_screening import graph as graph_screening
 from src.agent.graph_qa import State as QAState
 from src.agent.graph_qa import graph as graph_qa
 from langchain_core.runnables import RunnableConfig
 import asyncio
-import os
-import pandas as pd
-from src.utils.pydantic_utils import create_model_from_dict
+
 
 # load environment variables from .env file
 from dotenv import load_dotenv
@@ -29,32 +24,12 @@ async def run_exclusion_screening(exclusion_criteria: dict, topic:str, output_pa
     config = RunnableConfig(
         configurable={
             "model_name": "gpt-oss:120b",
-            "temperature": 1.0,
+            "temperature": 0.2,
             "max_output_tokens": 16000,
         }
     )
 
     result = await graph_screening.ainvoke(initial_state, config=config)
-    return result
-
-async def run_qa_screening(qa_criteria: str, output_path: str = "qa_results.csv", literature_items=None):
-    """Run the literature screening process."""
-
-    initial_state = QAState(
-        qa_criteria=qa_criteria,
-        output_path=output_path,
-        literature_items= literature_items
-    )
-
-    config = RunnableConfig(
-        configurable={
-            "model_name": "gpt-oss:120b",
-            "temperature": 1.0,
-            "max_output_tokens": 16000,
-        }
-    )
-
-    result = await graph_qa.ainvoke(initial_state, config=config)
     return result
 
 # Example usage
@@ -95,36 +70,15 @@ if __name__ == "__main__":
 
     """
 
-    qa_criteria = """
-    Using Likert Scala: 1 - No, and not considered (Score: 0), 2 - Partially (Score: 1), 3 - Yes: (Score: 2)
-QA1: Clarity of research design: Is there a clear description of the goals, motivations and objectives of the research with good structure and detail of methodology? 
-- Studies with clear workflow, detailed methodologies, and reproducible processes were considered well-structured receive highest score (2)
-- Studies with partially structured incomplete workflows receive moderate score (1)
-- Studies with vague and unstructured workflows receive lowest score (0) 
-QA2: Methodological rigor: Is the research approach sound? -> Categorization into fully empirical, partially empirical or theoretical
-- Fully empirical: Involving experimental or applied research with robust data analysis receive highest score (2)
-- Partially empirical: Some data-driven components but lacks extensive analysis receive moderate score (1)
-- theoretical studies: Solely conceptual frameworks without empirical evidence receive lowest score (0)
-QA3: Validation methods: Presence and depth of performance evaluation
-- Robust validation: Detailed benchmarking, performance metrics, case studies, simulations receive highest score (2)
-- Limited validation: Included preliminary comparisons or informal testing receive moderate score (1)
-- Without validation: Receive lowest score (0)
-    """
-
-#     exclusion_criteria = {
-#     "ec1_application_domain": "Exclude papers where application area is not within production or logistics contexts (e.g., healthcare diagnostics, financial trading, legal analysis, customer service chatbots).",
-#     "ec2_task_complexity_and_knowledge_intensity": "Exclude papers where LLM-based systems only perform simple information retrieval, content generation, or question-answering WITHOUT supporting planning, decision-making, scheduling, optimization, or diagnostic tasks that require domain expertise typically acquired through formal education or specialized training.",
-#     "ec3_system_architecture": "Exclude papers focusing on LLM applications that do not contain at least one of the following components of LLM-based agentic AI systems: tool use, autonomous decision-making, context engineering (retrieval augmented generation). As such, exclude simple chatbots or retrieval-augmented LLMs without agentic capabilities."
-# }
     exclusion_criteria = {
         "ec1_application_domain" : """EXCLUDE if the paper's primary application area is NOT production or logistics.
 _For example, DO NOT EXCLUDE production and logistics domains such as: manufacturing operations, supply chain management, warehouse operations, production planning and scheduling, inventory management, quality control, maintenance, and transportation/distribution systems._
 
-_For example, EXCLUDE applications such as: healthcare diagnostics, medical treatment planning, financial trading, legal document analysis, customer service chatbots, educational tutoring, creative content generation, or scientific research support (unless specifically for production/logistics domains)._"""
+_For example, EXCLUDE applications such as: healthcare diagnostics, medical treatment planning, financial trading, legal document analysis, customer service chatbots, educational tutoring, creative content generation, or scientific research support (unless specifically for production/logistics domains). Finally, EXCLUDE all papers that exclusively review existing applications and do not introduce their own novel solution._"""
         "",
         "ec2_task_and_knowledge_complexity": """EXCLUDE if the LLM-based system performs ONLY simple tasks without requiring domain expertise.
 
-_Foe example, DO NOT EXCLUDE papers where the system supports at least ONE of the following knowledge-intensive tasks:_
+_For example, DO NOT EXCLUDE papers where the system supports at least ONE of the following knowledge-intensive tasks:_
 
 - Planning (production schedules, resource allocation)
     
@@ -144,31 +98,23 @@ _For example, DO NOT EXCLUDE papers with evidence of:_
     
 - **Autonomous decision-making**: System makes decisions or takes actions with either minimal per-step human intervention or in an expert in the loop manner, including multi-step reasoning or workflow orchestration.
     
-- **Context engineering**: Advanced techniques including retrieval-augmented generation (RAG), dynamic memory management, multi-source knowledge integration, or adaptive prompt engineering
+- **Context engineering**: Advanced knowledge extraction and processing techniques including retrieval-augmented generation (RAG), dynamic memory management, multi-source knowledge integration, or adaptive prompt engineering
 
 - **Agent orchestration: Orchestrating multiple LLM-based agents either utilizing collaborative mechanisms or through hierarchical structures (manager agents with sub-agents for specialized tasks)
 
 _For example, EXCLUDE systems that are:_
 
 - Systems without any generative AI components
-
-- Simple conversational chatbots with fixed responses
     
-- Simple RAG systems targeting only information retrieval from a knowledge database without any further information processing, deduction or reasoning over the retrieved information downstream.
+- Conversational or reporting systems targeting information retrieval from a knowledge database WITHOUT any further deduction or reasoning over the retrieved information for solving downstream tasks.
     
-- Static prompt-based systems without adaptive context management
+- Systems without any adaptive context management or knowledge extraction mechanisms (such as efficient chunking strategies, pre-filtering using metadata, knowledge graphs or retrieval optimization methods)
 
         """
     }
 
     # load existing literature items
     #literature_items = pd.read_csv("existing_literature_items.csv")
-
-
-    # asyncio.run(run_qa_screening(
-    #     qa_criteria=qa_criteria,
-    #     output_path="qa_result.csv",
-    # ))
 
     asyncio.run(run_exclusion_screening(
         exclusion_criteria=exclusion_criteria,

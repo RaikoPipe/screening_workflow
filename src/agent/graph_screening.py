@@ -143,7 +143,7 @@ Evaluate this paper against all exclusion criteria. For each criterion, provide 
 """
                 if item.extra == "skip":
                     attempt = 3
-                    raise Exception("Skipped paper due to 'skip' flag set.")
+                    raise Exception("Skipped paper due to 'skip' flag set in the 'extra' field.")
 
                 messages = [
                     SystemMessage(content=system_prompt),
@@ -165,13 +165,14 @@ Evaluate this paper against all exclusion criteria. For each criterion, provide 
 
             except Exception as e:
                 attempt += 1
-                if attempt == 3:
-                    print(f"Error screening {item.title} after 3 attempts: {e}")
+                if attempt >= 3:
+                    empty_reject_decision = ScreeningDecision(**{k: True if k.endswith('_decision') else '' for k in ScreeningDecision.model_fields})
+                    print(f"Skipped item {item.title} after 3 attempts: {e}")
                     # Default to exclusion on repeated error
                     result = ScreeningResult(
                         title=item.title,
                         doi=item.doi,
-                        screening_decision=ScreeningDecision().model_dump(),
+                        screening_decision=empty_reject_decision,
                         exclusion=True
                     )
                     results.append(result)
