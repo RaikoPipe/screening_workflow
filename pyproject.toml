@@ -1,7 +1,7 @@
 [project]
 name = "agent"
 version = "0.0.1"
-description = "Starter template for making a new agent LangGraph."
+description = "AI-powered workflows for systematic literature review using LangGraph, LLM agents and Zotero integration."
 authors = [
     { name = "Richard Reider", email = "richard.reider@ovgu.de" },
 ]
