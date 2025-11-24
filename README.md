@@ -30,6 +30,10 @@ cp .env.example .env
 Create a `.env` file with required API keys:
 ```bash
 LANGSMITH_PROJECT=your-project-name
+# Zotero
+ZOTERO_API_KEY=your-key-here
+ZOTERO_LIBRARY_ID=your-id-here
+ZOTERO_COLLECTION_KEY=your-key-here
 # Add LLM provider API keys as needed
 ```
 
