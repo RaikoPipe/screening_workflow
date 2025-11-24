@@ -4,23 +4,10 @@ AI-powered workflows for systematic literature review using LangGraph and LLM ag
 
 ## Features
 
-### 1. Exclusion Screening Workflow
-Evaluates literature items against multiple exclusion criteria to filter out irrelevant papers.
-
 **Key capabilities:**
-- Multi-criteria evaluation (application domain, task complexity, system architecture)
-- Topic-aware screening based on research questions
+- Multi-criteria evaluation
 - Structured decision reasoning for each criterion
-- CSV output with detailed exclusion rationale
-
-### 2. QA Screening Workflow
-Assesses literature quality using Likert scale scoring across methodological dimensions.
-
-**Key capabilities:**
-- Multi-dimensional quality assessment (research design, methodological rigor, validation)
-- Likert scale scoring (0-2 per criterion)
-- Detailed scoring justifications
-- CSV output with quality scores and reasoning
+- CSV output with exclusion rationale
 
 ## Installation
 
