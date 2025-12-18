@@ -19,7 +19,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_ollama import ChatOllama
 import abc
 from langgraph.graph import StateGraph
-from src.utils import get_paper_collection, flatten_pydantic, remove_references_section
+from src.utils import get_paper_collection, flatten_pydantic, remove_section
 from pydantic import BaseModel, Field
 from pydantic.fields import FieldInfo
 from typing_extensions import Optional
@@ -119,7 +119,7 @@ async def screen_literature(state: State, config: RunnableConfig) -> Dict[str, A
 
     for item in tqdm(state.literature_items, desc="Screening literature", unit="item"):
         if type(item.fulltext) is str:
-            text_to_screen = remove_references_section(item.fulltext)
+            text_to_screen = remove_section(item.fulltext)
             text_to_screen = text_to_screen.split()[:max_fulltext_words]
             text_label = "Fulltext"
         else:
