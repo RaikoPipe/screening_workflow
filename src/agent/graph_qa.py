@@ -16,7 +16,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_ollama import ChatOllama
 
 from langgraph.graph import StateGraph
-from src.utils import get_paper_collection, remove_references_section
+from src.utils import get_paper_collection, remove_section
 from pydantic import BaseModel, Field
 import pandas as pd
 from tqdm.asyncio import tqdm
@@ -103,7 +103,7 @@ async def qa_literature(state: State, config: RunnableConfig) -> Dict[str, Any]:
     for item in tqdm(state.literature_items, desc="Screening literature", unit="item"):
         attempt = 0
 
-        text_to_qa = remove_references_section(item.fulltext)
+        text_to_qa = remove_section(item.fulltext)
         while attempt < 3:
             try:
                 human_prompt = f"""
