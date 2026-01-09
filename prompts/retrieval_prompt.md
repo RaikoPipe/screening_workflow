@@ -34,4 +34,4 @@ EXTRACTION_SYSTEM_PROMPT = """You are a precise information extraction system. Y
 
 Return valid JSON matching the exact schema structure. All enum values must match exactly (case-sensitive).
 
-Now extract information from the provided paper according to the schema. Reasoning: high"""
+Now extract information from the provided paper according to the schema."""

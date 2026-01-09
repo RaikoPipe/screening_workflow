@@ -80,7 +80,7 @@ def load_literature(collection_key) -> List[LiteratureItem]:
     print(f"Loaded {len(literature_items)} literature items")
     return literature_items
 
-def dump_output(title, doi, output):
+def dump_output(title, doi, output, reasoning):
     """flatten schema and save retrieval results as JSON"""
 
     # encode as list when set is encountered
@@ -95,10 +95,11 @@ def dump_output(title, doi, output):
     output = {
             'title': title,
             'doi': doi,
-            'retrieval': output.model_dump()
+            'retrieval': output.model_dump(),
+            'reasoning': reasoning
         }
 
-    with open("outputs/" + get_doi_based_filename(doi, "retrieval"), encoding='utf-8') as f:
+    with open("outputs/" + get_doi_based_filename(doi, "retrieval"), encoding='utf-8', mode='w') as f:
         import json
         json.dump(output, f, ensure_ascii=False, indent=4, cls=SetEncoder)
 
@@ -139,6 +140,7 @@ def orchestrate_retrieval(literature_item):
 
     # run retrieval for each part
     result = {}
+    reasoning = {}
     loop = asyncio.get_event_loop()
     for part_name, part_schema in [
         ("system_architecture_part1", system_architecture_part1),
@@ -150,7 +152,8 @@ def orchestrate_retrieval(literature_item):
     ]:
         print(f"Running retrieval for {part_name}...")
         part_result = loop.run_until_complete(run_retrieval(part_schema, literature_item))
-        result[part_name] = part_result
+        result[part_name] = part_result["result"]
+        reasoning[part_name] = part_result["reasoning"]
         print(f"Completed retrieval for {part_name}.")
 
     system_architecture = SystemArchitecture(
@@ -171,7 +174,8 @@ def orchestrate_retrieval(literature_item):
     dump_output(
         title=literature_item.title,
         doi=literature_item.doi,
-        output=ai_system
+        output=ai_system,
+        reasoning=reasoning
     )
 
 
