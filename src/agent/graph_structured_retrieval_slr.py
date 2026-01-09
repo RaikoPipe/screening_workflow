@@ -18,6 +18,8 @@ from langgraph.graph import StateGraph
 from pydantic import BaseModel
 from tqdm.asyncio import tqdm
 from typing_extensions import Optional
+
+from src.utils.fulltext_manipulation import omit_sections_markdown
 from src.utils.prompt_utils import load_prompt
 from loguru import logger
 from langchain.agents import create_agent
@@ -87,17 +89,73 @@ async def retrieve(state: State, config: RunnableConfig) -> Dict[str, Any]:
 
     configuration = config.get("configurable", {})
 
-    llm = ChatOllama(model=configuration["model_name"], temperature=configuration["temperature"], reasoning=True, max_retries=3)
-    parser = PydanticOutputParser(pydantic_object=state.retrieval_form)
+    llm = ChatOllama(model=configuration["model_name"], temperature=configuration["temperature"], max_retries=3)
 
     # Chain with retry logic
     llm = llm.with_structured_output(
-        state.retrieval_form,
+        state.retrieval_form
     )
 
     result = None
 
-    text_to_screen = remove_section(state.literature_item.fulltext, section_title="References")
+    omit_titles = [
+    # Definitively omit
+    "abstract",
+    "references",
+    "bibliography",
+    "acknowledgments",
+    "acknowledgements",
+    "author contributions",
+    "funding",
+    "conflicts of interest",
+    "conflict of interest",
+    "appendix",
+    "appendices",
+    "supplementary material",
+    "supplementary materials",
+
+    # Introduction and context
+    "introduction",
+    "background",
+    "motivation",
+    "problem statement",
+
+    # Literature and related work
+    "literature review",
+    "related work",
+    "related works",
+    "prior work",
+    "previous work",
+    "state of the art",
+    "state-of-the-art",
+    "theoretical background",
+    "theoretical framework",
+
+    # Conclusions and future directions
+    "conclusion",
+    "conclusions",
+    "future work",
+    "future directions",
+    "future research",
+    "outlook",
+    "limitations and future work",
+
+    # Discussion (depending on content)
+    "discussion",
+    "discussion and implications",
+    "implications",
+
+    # Availability statements
+    "data availability",
+    "code availability",
+    "availability of data and materials",
+
+    # Ethical statements
+    "Declaration of competing interest",
+    "Conflict of interest statement",
+]
+
+    text_to_screen = omit_sections_markdown(state.literature_item.fulltext, omit_sections=omit_titles)
     try:
         if state.literature_item.extra == "skip":
             raise Exception("Skipped paper")
@@ -111,7 +169,7 @@ async def retrieve(state: State, config: RunnableConfig) -> Dict[str, Any]:
 # Your Objective:
 Please extract the given information based on the provided schema.
 """
-
+    # todo: add reasoning with schema in prompt or not?
         messages = [
             SystemMessage(content=RETRIEVAL_PROMPT),
             HumanMessage(content=human_prompt),
@@ -119,7 +177,7 @@ Please extract the given information based on the provided schema.
 
         response = await llm.ainvoke(messages)
 
-        if response["parsing_error"]:
+        if hasattr(response, "parsing_error") and response["parsing_error"] is not None:
             raise response["parsing_error"]
 
         # If include_raw=True, response is dict with 'parsed' and 'raw'

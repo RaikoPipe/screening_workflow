@@ -1,3 +1,5 @@
+unreflected ai generated readme, digest with care:
+
 # Literature Screening Workflows
 
 AI-powered workflows for systematic literature review using LangGraph, LLM agents and [Zotero integration](https://github.com/RaikoPipe/syslira-tools). This project provides two complementary screening workflows: exclusion screening and quality assessment (QA).

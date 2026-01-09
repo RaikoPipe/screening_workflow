@@ -124,7 +124,7 @@ def orchestrate_retrieval(literature_item):
 
     ai_system_part1 = select_fields(
         AISystem,
-        include=["application_domain", "application_domains_reasoning", "paradigm", "paradigm_reasoning"]
+        include=["application_domain", "paradigm"]
     )
 
     ai_system_part2 = select_fields(
@@ -163,9 +163,7 @@ def orchestrate_retrieval(literature_item):
     ai_system = AISystem(
         system_architecture=system_architecture,
         application_domain=result["ai_system_part1"].application_domain,
-        application_domain_reasoning=result["ai_system_part1"].application_domains_reasoning,
         paradigm=result["ai_system_part1"].paradigm,
-        paradigm_reasoning=result["ai_system_part1"].paradigm_reasoning,
         validation_methods=result["ai_system_part2"].validation_methods,
         reported_outcomes=result["ai_system_part3"].reported_outcomes
     )
