@@ -23,6 +23,7 @@ def get_paper_collection(collection_key, get_fulltext=True):
         zotero_client=zotero_client,
         openalex_client=openalex_client,
         collection_key=collection_key,
+        local_storage_path=os.environ.get("ZOTERO_LOCAL_STORAGE_PATH"),
     )
 
     # get papers

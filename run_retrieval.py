@@ -14,6 +14,7 @@ from tqdm.asyncio import tqdm
 from dotenv import load_dotenv
 
 from src.utils import get_paper_collection
+from loguru import logger
 
 load_dotenv()
 
@@ -72,7 +73,10 @@ def load_literature(collection_key) -> List[LiteratureItem]:
         # check if item was already processed
         output_filename = get_doi_based_filename(paper.DOI, "retrieval")
         if os.path.exists("outputs/" + output_filename):
-            print(f"Skipping already processed paper: {paper.title}")
+            logger.info(f"Skipping already processed paper: {paper.title}")
+            continue
+        elif not isinstance(paper.fulltext, str) or paper.fulltext == "":
+            logger.warning("Paper fulltext not found, skipping paper: " + paper.title)
             continue
         else:
             literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote, doi =paper.DOI, fulltext=paper.fulltext, extra=paper.extra))
@@ -178,11 +182,13 @@ def orchestrate_retrieval(literature_item):
         reasoning=reasoning
     )
 
+    logger.success(f"Retrieval completed and saved for paper: {literature_item.title}")
+
 
 # Example usage
 if __name__ == "__main__":
 
-    literature = load_literature(collection_key="5HE7P89C")
+    literature = load_literature(collection_key="UF8TVRYZ")
 
     for item in tqdm(literature, desc="Retrieve", unit="item"):
         print(f"Processing paper: {item.title}")
