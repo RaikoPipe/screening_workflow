@@ -61,6 +61,7 @@ class State:
 
 async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
     """Generate initial extraction."""
+    logger.info(f"Generating extraction for paper: {state.literature_item.title}")
 
     if state.literature_item.extra == "skip":
         logger.info(f"Skipping paper: {state.literature_item.title}")
@@ -76,7 +77,8 @@ async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
     )
 
     parser = PydanticOutputParser(pydantic_object=state.retrieval_form)
-    schema_instructions = parser.get_format_instructions()
+    schema = state.retrieval_form.model_json_schema()
+    schema_json = json.dumps(schema, indent=2)
 
     omit_titles = [
         "abstract", "references", "bibliography", "acknowledgments", "acknowledgements",
@@ -104,7 +106,7 @@ async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
         SystemMessage(content=RETRIEVAL_PROMPT.format(
             title=state.literature_item.title,
             fulltext=text_to_screen,
-            schema=schema_instructions)),
+            schema=schema_json))
     ]
 
     try:
@@ -113,10 +115,13 @@ async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
             "raw_json": response.content,
             "reasoning": response.additional_kwargs.get("reasoning_content", ""),
             "validation_attempts": 0,
-            "schema_instructions": schema_instructions
+            "schema_instructions": schema_json
         }
-    except Exception as e:
+    except ConnectionError as e:
         logger.error(f"Generation error: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected generation error: {traceback.format_exc()}")
         return {"result": None}
 
 async def validate(state: State, config: RunnableConfig) -> Dict[str, Any]:
@@ -129,7 +134,7 @@ async def validate(state: State, config: RunnableConfig) -> Dict[str, Any]:
     except ValidationError as e:
         logger.warning(f"Validation error: {e}")
         return {
-            "validation_errors": str(e),
+            "validation_errors": e.json(indent=2),  # or str(e.errors())
             "validation_attempts": state.validation_attempts + 1
         }
 
@@ -167,10 +172,96 @@ async def repair(state: State, config: RunnableConfig) -> Dict[str, Any]:
         logger.error(f"Repair error: {e}")
         return {}
 
+async def repair_edit(state: State, config: RunnableConfig) -> Dict[str, Any]:
+    """Repair validation errors by applying targeted JSON edits."""
+
+    configuration = config.get("configurable", {})
+    llm = ChatOllama(
+        model=configuration["model_name"],
+        temperature=0.0,
+        max_retries=2,
+        format="json"
+    )
+
+    # Define the edit instruction schema
+    class JsonEdit(BaseModel):
+        old_str: str
+        new_str: str
+        reason: str
+
+    class JsonEditPlan(BaseModel):
+        edits: list[JsonEdit]
+
+    EDIT_PROMPT = """You are a JSON repair assistant. Create targeted string replacements to fix validation errors.
+
+Reasoning about JSON content:
+{reasoning}
+
+Current JSON with errors:
+{json_content}
+
+Validation errors:
+{errors}
+
+Return a JSON with a list of 'edits', where each edit has:
+- old_str: exact string to find (must appear exactly once)
+- new_str: replacement string
+- reason: explanation of the fix
+
+Make minimal, precise edits targeting only the problematic fields."""
+
+    messages = [
+        SystemMessage(content=EDIT_PROMPT.format(
+            json_content=state.raw_json,
+            errors=state.validation_errors,
+            reasoning=state.reasoning
+        ))
+    ]
+
+    max_edit_iterations = 3
+    broken_edits = []
+    edited_json = state.raw_json
+
+    for edit_iteration in range(max_edit_iterations):
+        try:
+            # Get edit plan from LLM
+            response = await llm.ainvoke(messages)
+            edit_plan = JsonEditPlan.model_validate_json(response.content)
+
+            # Apply edits sequentially
+            for edit in edit_plan.edits:
+                try:
+                    if edited_json.count(edit.old_str) == 1:
+                        edited_json = edited_json.replace(edit.old_str, edit.new_str, 1)
+                    elif edited_json.count(edit.old_str) > 1:
+                        raise ValueError(f"Multiple occurrences: {edit.reason} for '{edit.old_str}'")
+                    else:
+                        raise ValueError(f"String not found: {edit.reason} for '{edit.old_str}'")
+                except ValueError as ve:
+                    logger.warning(str(ve))
+                    broken_edits.append(edit)
+
+            # If all edits succeeded, break
+            if not broken_edits:
+                break
+            else:
+                # Provide feedback for next iteration
+                feedback = "\n".join([f"- {be.reason}: '{be.old_str}'" for be in broken_edits])
+                messages.append(HumanMessage(
+                    content=f"These edits failed:\n{feedback}\n\nRevise your edit plan with more specific strings."
+                ))
+                broken_edits = []
+
+        except Exception as e:
+            logger.error(f"Edit iteration {edit_iteration} error: {e}")
+            break
+
+    return {"raw_json": edited_json}
+
 def should_repair(state: State) -> str:
     """Route based on validation status."""
 
-    if state.result is not None:
+    if state.result is not None and state.result != {}:
         return END
 
     if state.validation_errors is None:
@@ -187,7 +278,7 @@ graph = (
     StateGraph(State, context_schema=Configuration)
     .add_node("generate", generate)
     .add_node("validate", validate)
-    .add_node("repair", repair)
+    .add_node("repair", repair_edit)
     .add_edge("__start__", "generate")
     .add_edge("generate", "validate")
     .add_conditional_edges("validate", should_repair, {

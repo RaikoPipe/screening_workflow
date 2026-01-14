@@ -65,6 +65,7 @@ class LiteratureItem:
 
 def load_literature(collection_key) -> List[LiteratureItem]:
     """Load literature items from the literature folder."""
+    logger.info(f"Loading collection {collection_key}")
     literature_items = []
 
     paper_collection = get_paper_collection(collection_key=collection_key, get_fulltext="parsed")
@@ -119,12 +120,7 @@ def orchestrate_retrieval(literature_item):
 
     system_architecture_part2 = select_fields(
         SystemArchitecture,
-        include=["orchestration_pattern", "trigger"]
-    )
-
-    system_architecture_part3 = select_fields(
-        SystemArchitecture,
-        include=["human_integration"]
+        include=["orchestration_pattern", "trigger", "human_integration"]
     )
 
     ai_system_part1 = select_fields(
@@ -134,12 +130,7 @@ def orchestrate_retrieval(literature_item):
 
     ai_system_part2 = select_fields(
         AISystem,
-        include=["validation_methods"]
-    )
-
-    ai_system_part3 = select_fields(
-        AISystem,
-        include=["reported_outcomes"]
+        include=["reported_outcomes, validation_methods"]
     )
 
     # run retrieval for each part
@@ -149,10 +140,8 @@ def orchestrate_retrieval(literature_item):
     for part_name, part_schema in [
         ("system_architecture_part1", system_architecture_part1),
         ("system_architecture_part2", system_architecture_part2),
-        ("system_architecture_part3", system_architecture_part3),
         ("ai_system_part1", ai_system_part1),
         ("ai_system_part2", ai_system_part2),
-        ("ai_system_part3", ai_system_part3),
     ]:
         print(f"Running retrieval for {part_name}...")
         part_result = loop.run_until_complete(run_retrieval(part_schema, literature_item))
@@ -164,7 +153,7 @@ def orchestrate_retrieval(literature_item):
         agents=result["system_architecture_part1"].agents,
         orchestration_pattern=result["system_architecture_part2"].orchestration_pattern,
         trigger=result["system_architecture_part2"].trigger,
-        human_integration=result["system_architecture_part3"].human_integration
+        human_integration=result["system_architecture_part2"].human_integration
     )
 
     ai_system = AISystem(
@@ -172,7 +161,7 @@ def orchestrate_retrieval(literature_item):
         application_domain=result["ai_system_part1"].application_domain,
         paradigm=result["ai_system_part1"].paradigm,
         validation_methods=result["ai_system_part2"].validation_methods,
-        reported_outcomes=result["ai_system_part3"].reported_outcomes
+        reported_outcomes=result["ai_system_part2"].reported_outcomes
     )
 
     dump_output(
@@ -188,7 +177,7 @@ def orchestrate_retrieval(literature_item):
 # Example usage
 if __name__ == "__main__":
 
-    literature = load_literature(collection_key="UF8TVRYZ")
+    literature = load_literature(collection_key="5HE7P89C")
 
     for item in tqdm(literature, desc="Retrieve", unit="item"):
         print(f"Processing paper: {item.title}")

@@ -14,7 +14,11 @@ dependencies = [
     "syslira-tools @ git+https://github.com/RaikoPipe/syslira-tools",
     'langchain-community',
     'markdown',
-    'unstructured'
+    'unstructured',
+    'langchain-ollama',
+    'pymupdf4llm[ocr,layout]',
+    'langchain',
+    'langchain-anthropic'
 ]
 
 
