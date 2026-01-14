@@ -24,7 +24,7 @@ def select_fields(model: type[BaseModel], include: list[str]):
     return create_model(
         f"{model.__name__}Partial",
         **{
-            name: (field.annotation, FieldInfo.from_annotated_attribute(field.annotation, field))
+            name: (field.annotation, field)
             for name, field in model.model_fields.items()
             if name in include
         }
@@ -113,24 +113,24 @@ def dump_output(title, doi, output, reasoning):
 
 def orchestrate_retrieval(literature_item):
     # decompose the schema for distributed retrieval
-    system_architecture_part1 = select_fields(
+    agents = select_fields(
         SystemArchitecture,
         include=["agents"]
     )
 
-    system_architecture_part2 = select_fields(
+    system_architecture = select_fields(
         SystemArchitecture,
         include=["orchestration_pattern", "trigger", "human_integration"]
     )
 
-    ai_system_part1 = select_fields(
+    domain = select_fields(
         AISystem,
         include=["application_domain", "paradigm"]
     )
 
-    ai_system_part2 = select_fields(
+    reported_outcomes = select_fields(
         AISystem,
-        include=["reported_outcomes, validation_methods"]
+        include=["reported_outcomes", "validation_methods"]
     )
 
     # run retrieval for each part
@@ -138,10 +138,10 @@ def orchestrate_retrieval(literature_item):
     reasoning = {}
     loop = asyncio.get_event_loop()
     for part_name, part_schema in [
-        ("system_architecture_part1", system_architecture_part1),
-        ("system_architecture_part2", system_architecture_part2),
-        ("ai_system_part1", ai_system_part1),
-        ("ai_system_part2", ai_system_part2),
+        ("agents", agents),
+        ("system_architecture", system_architecture),
+        ("domain", domain),
+        ("reported_outcomes", reported_outcomes),
     ]:
         print(f"Running retrieval for {part_name}...")
         part_result = loop.run_until_complete(run_retrieval(part_schema, literature_item))
@@ -150,18 +150,18 @@ def orchestrate_retrieval(literature_item):
         print(f"Completed retrieval for {part_name}.")
 
     system_architecture = SystemArchitecture(
-        agents=result["system_architecture_part1"].agents,
-        orchestration_pattern=result["system_architecture_part2"].orchestration_pattern,
-        trigger=result["system_architecture_part2"].trigger,
-        human_integration=result["system_architecture_part2"].human_integration
+        agents=result["agents"].agents,
+        orchestration_pattern=result["system_architecture"].orchestration_pattern,
+        trigger=result["system_architecture"].trigger,
+        human_integration=result["system_architecture"].human_integration
     )
 
     ai_system = AISystem(
         system_architecture=system_architecture,
-        application_domain=result["ai_system_part1"].application_domain,
-        paradigm=result["ai_system_part1"].paradigm,
-        validation_methods=result["ai_system_part2"].validation_methods,
-        reported_outcomes=result["ai_system_part2"].reported_outcomes
+        application_domain=result["domain"].application_domain,
+        paradigm=result["domain"].paradigm,
+        validation_methods=result["reported_outcomes"].validation_methods,
+        reported_outcomes=result["reported_outcomes"].reported_outcomes
     )
 
     dump_output(

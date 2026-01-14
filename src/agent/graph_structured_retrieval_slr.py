@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Dict, TypedDict
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
 from langchain_ollama import ChatOllama
@@ -17,7 +17,9 @@ from loguru import logger
 from src.utils.fulltext_manipulation import omit_sections_markdown
 from src.utils.prompt_utils import load_prompt
 
-RETRIEVAL_PROMPT = load_prompt("prompts/retrieval_prompt.md")
+RETRIEVAL_PROMPT = load_prompt("prompts/convert_to_json_prompt.md")
+
+REASONING_PROMPT = load_prompt("prompts/reasoning_prompt.md")
 
 VALIDATION_PROMPT = """You are a JSON repair assistant. Fix ONLY the specific validation errors in the JSON.
 
@@ -59,9 +61,8 @@ class State:
     max_validation_attempts: int = 3
     schema_instructions: Optional[str] = None
 
-async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
-    """Generate initial extraction."""
-    logger.info(f"Generating extraction for paper: {state.literature_item.title}")
+async def reason(state: State, config: RunnableConfig) -> Dict[str, Any]:
+    """Analyze paper and reason about extraction requirements."""
 
     if state.literature_item.extra == "skip":
         logger.info(f"Skipping paper: {state.literature_item.title}")
@@ -71,12 +72,9 @@ async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
     llm = ChatOllama(
         model=configuration["model_name"],
         temperature=configuration["temperature"],
-        max_retries=3,
-        reasoning=True,
-        format="json"
+        max_retries=3
     )
 
-    parser = PydanticOutputParser(pydantic_object=state.retrieval_form)
     schema = state.retrieval_form.model_json_schema()
     schema_json = json.dumps(schema, indent=2)
 
@@ -103,25 +101,47 @@ async def generate(state: State, config: RunnableConfig) -> Dict[str, Any]:
         logger.warning('Fulltext exceeds 12000 words')
 
     messages = [
-        SystemMessage(content=RETRIEVAL_PROMPT.format(
+        SystemMessage(content=REASONING_PROMPT.format(
             title=state.literature_item.title,
             fulltext=text_to_screen,
-            schema=schema_json))
+            schema=schema))
+    ]
+
+    try:
+        response = await llm.ainvoke(messages)
+        return {
+            "reasoning": response.content,
+            "schema_instructions": schema_json
+        }
+    except Exception as e:
+        logger.error(f"Reasoning error: {traceback.format_exc()}")
+        return {"result": None}
+
+async def convert_to_json(state: State, config: RunnableConfig) -> Dict[str, Any]:
+    """Generate JSON based on reasoning."""
+
+    configuration = config.get("configurable", {})
+    llm = ChatOllama(
+        model=configuration["model_name"],
+        temperature=0.0,
+        max_retries=3,
+        format="json"
+    )
+
+    messages = [
+        SystemMessage(content=RETRIEVAL_PROMPT.format(
+            reasoning=state.reasoning,
+            schema=state.schema_instructions)),
     ]
 
     try:
         response = await llm.ainvoke(messages)
         return {
             "raw_json": response.content,
-            "reasoning": response.additional_kwargs.get("reasoning_content", ""),
-            "validation_attempts": 0,
-            "schema_instructions": schema_json
+            "validation_attempts": 0
         }
-    except ConnectionError as e:
-        logger.error(f"Generation error: {e}")
-        raise e
     except Exception as e:
-        logger.error(f"Unexpected generation error: {traceback.format_exc()}")
+        logger.error(f"Generation error: {traceback.format_exc()}")
         return {"result": None}
 
 async def validate(state: State, config: RunnableConfig) -> Dict[str, Any]:
@@ -134,7 +154,7 @@ async def validate(state: State, config: RunnableConfig) -> Dict[str, Any]:
     except ValidationError as e:
         logger.warning(f"Validation error: {e}")
         return {
-            "validation_errors": e.json(indent=2),  # or str(e.errors())
+            "validation_errors": e.json(indent=2),
             "validation_attempts": state.validation_attempts + 1
         }
 
@@ -144,33 +164,6 @@ async def validate(state: State, config: RunnableConfig) -> Dict[str, Any]:
             "validation_errors": f"JSON decode error: {str(e)}",
             "validation_attempts": state.validation_attempts + 1
         }
-
-async def repair(state: State, config: RunnableConfig) -> Dict[str, Any]:
-    """Repair validation errors in JSON."""
-
-    configuration = config.get("configurable", {})
-    llm = ChatOllama(
-        model=configuration["model_name"],
-        temperature=0.0,
-        max_retries=2,
-        format="json"
-    )
-
-    messages = [
-        SystemMessage(content=VALIDATION_PROMPT.format(
-            schema=state.schema_instructions,
-            json_content=state.raw_json,
-            errors=state.validation_errors,
-            reasoning=state.reasoning
-        ))
-    ]
-
-    try:
-        response = await llm.ainvoke(messages)
-        return {"raw_json": response.content}
-    except Exception as e:
-        logger.error(f"Repair error: {e}")
-        return {}
 
 async def repair_edit(state: State, config: RunnableConfig) -> Dict[str, Any]:
     """Repair validation errors by applying targeted JSON edits."""
@@ -183,7 +176,6 @@ async def repair_edit(state: State, config: RunnableConfig) -> Dict[str, Any]:
         format="json"
     )
 
-    # Define the edit instruction schema
     class JsonEdit(BaseModel):
         old_str: str
         new_str: str
@@ -224,11 +216,9 @@ Make minimal, precise edits targeting only the problematic fields."""
 
     for edit_iteration in range(max_edit_iterations):
         try:
-            # Get edit plan from LLM
             response = await llm.ainvoke(messages)
             edit_plan = JsonEditPlan.model_validate_json(response.content)
 
-            # Apply edits sequentially
             for edit in edit_plan.edits:
                 try:
                     if edited_json.count(edit.old_str) == 1:
@@ -241,11 +231,9 @@ Make minimal, precise edits targeting only the problematic fields."""
                     logger.warning(str(ve))
                     broken_edits.append(edit)
 
-            # If all edits succeeded, break
             if not broken_edits:
                 break
             else:
-                # Provide feedback for next iteration
                 feedback = "\n".join([f"- {be.reason}: '{be.old_str}'" for be in broken_edits])
                 messages.append(HumanMessage(
                     content=f"These edits failed:\n{feedback}\n\nRevise your edit plan with more specific strings."
@@ -276,10 +264,12 @@ def should_repair(state: State) -> str:
 # Build graph
 graph = (
     StateGraph(State, context_schema=Configuration)
-    .add_node("generate", generate)
+    .add_node("reason", reason)
+    .add_node("generate", convert_to_json)
     .add_node("validate", validate)
     .add_node("repair", repair_edit)
-    .add_edge("__start__", "generate")
+    .add_edge("__start__", "reason")
+    .add_edge("reason", "generate")
     .add_edge("generate", "validate")
     .add_conditional_edges("validate", should_repair, {
         "repair": "repair",

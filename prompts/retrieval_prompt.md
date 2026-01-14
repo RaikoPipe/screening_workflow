@@ -40,8 +40,11 @@ Return valid JSON matching the exact schema structure. All enum values must matc
 
 **Title:** {title}
 
-**Paper information:**
+**Fulltext:**
 {fulltext}
+
+**Reasoning:**
+{reasoning}
 
 ---
 
