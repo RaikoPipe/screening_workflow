@@ -98,7 +98,7 @@ async def reason(state: State, config: RunnableConfig) -> Dict[str, Any]:
     )
 
     if len(text_to_screen.split()) > 12000:
-        logger.warning('Fulltext exceeds 12000 words')
+        logger.warning(f'Fulltext exceeds 12000 words < {len(text_to_screen.split())}')
 
     messages = [
         SystemMessage(content=REASONING_PROMPT.format(

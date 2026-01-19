@@ -1,4 +1,5 @@
 import os
+import time
 from typing import List, Optional
 
 from src.agent.graph_structured_retrieval_slr import State as RetrievalState
@@ -82,7 +83,7 @@ def load_literature(collection_key) -> List[LiteratureItem]:
         else:
             literature_items.append(LiteratureItem(title=paper.title, abstract=paper.abstractNote, doi =paper.DOI, fulltext=paper.fulltext, extra=paper.extra))
 
-    print(f"Loaded {len(literature_items)} literature items")
+    logger.info(f"Loaded {len(literature_items)} literature items")
     return literature_items
 
 def dump_output(title, doi, output, reasoning):
@@ -143,11 +144,15 @@ def orchestrate_retrieval(literature_item):
         ("domain", domain),
         ("reported_outcomes", reported_outcomes),
     ]:
-        print(f"Running retrieval for {part_name}...")
+        #logger.info(f"Running retrieval for {part_name}...")
         part_result = loop.run_until_complete(run_retrieval(part_schema, literature_item))
         result[part_name] = part_result["result"]
+        # check if result[part_name] is empty
+        if not result[part_name]:
+            logger.error(f"Retrieval for {part_name} returned empty result for paper: {literature_item.title}")
+            return
         reasoning[part_name] = part_result["reasoning"]
-        print(f"Completed retrieval for {part_name}.")
+        #logger.info(f"Completed retrieval for {part_name}.")
 
     system_architecture = SystemArchitecture(
         agents=result["agents"].agents,
@@ -176,11 +181,10 @@ def orchestrate_retrieval(literature_item):
 
 # Example usage
 if __name__ == "__main__":
-
-    literature = load_literature(collection_key="5HE7P89C")
+    literature = load_literature(collection_key="UF8TVRYZ")
 
     for item in tqdm(literature, desc="Retrieve", unit="item"):
-        print(f"Processing paper: {item.title}")
+        logger.info(f"Processing paper: {item.title}")
         orchestrate_retrieval(item)
 
 
